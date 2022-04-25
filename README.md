@@ -1,7 +1,7 @@
 # Image
 [![crates.io](https://img.shields.io/crates/v/image.svg)](https://crates.io/crates/image)
 [![Documentation](https://docs.rs/image/badge.svg)](https://docs.rs/image)
-[![Build Status](https://travis-ci.org/image-rs/image.svg?branch=master)](https://travis-ci.org/image-rs/image)
+[![Build Status](https://github.com/image-rs/image/workflows/Rust%20CI/badge.svg)](https://github.com/image-rs/image/actions)
 [![Gitter](https://badges.gitter.im/image-rs/image.svg)](https://gitter.im/image-rs/image?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge)
 
 Maintainers: [@HeroicKatora](https://github.com/HeroicKatora), [@fintelia](https://github.com/fintelia)
@@ -23,21 +23,22 @@ All image processing functions provided operate on types that implement the `Gen
 | PNG    | All supported color types | Same as decoding |
 | JPEG   | Baseline and progressive | Baseline JPEG |
 | GIF    | Yes | Yes |
-| BMP    | Yes | RGB(8), RGBA(8), Gray(8), GrayA(8) |
+| BMP    | Yes | Rgb8, Rgba8, Gray8, GrayA8 |
 | ICO    | Yes | Yes |
-| TIFF   | Baseline(no fax support) + LZW + PackBits | RGB(8), RGBA(8), Gray(8) |
-| WebP   | Lossy(Luma channel only) | No |
+| TIFF   | Baseline(no fax support) + LZW + PackBits | Rgb8, Rgba8, Gray8 |
+| WebP   | Yes | No |
 | AVIF   | Only 8-bit | Lossy |
 | PNM    | PBM, PGM, PPM, standard PAM | Yes |
 | DDS    | DXT1, DXT3, DXT5 | No |
-| TGA    | Yes | RGB(8), RGBA(8), BGR(8), BGRA(8), Gray(8), GrayA(8) |
+| TGA    | Yes | Rgb8, Rgba8, Bgr8, Bgra8, Gray8, GrayA8 |
+| OpenEXR  | Rgb32F, Rgba32F (no dwa compression) | Rgb32F, Rgba32F (no dwa compression) |
 | farbfeld | Yes | Yes |
 
-### The [`ImageDecoder`](https://docs.rs/image/*/image/trait.ImageDecoder.html) and [`ImageDecoderExt`](https://docs.rs/image/*/image/trait.ImageDecoderExt.html) Traits
+### The [`ImageDecoder`](https://docs.rs/image/*/image/trait.ImageDecoder.html) and [`ImageDecoderRect`](https://docs.rs/image/*/image/trait.ImageDecoderRect.html) Traits
 
 All image format decoders implement the `ImageDecoder` trait which provide
 basic methods for getting image metadata and decoding images. Some formats
-additionally provide `ImageDecoderExt` implementations which allow for
+additionally provide `ImageDecoderRect` implementations which allow for
 decoding only part of an image at once.
 
 The most important methods for decoders are...
@@ -77,8 +78,6 @@ While some of the methods for `GenericImage` are...
 An image parameterised by its Pixel types, represented by a width and height and a vector of pixels. It provides direct access to its pixels and implements the `GenericImageView` and `GenericImage` traits.
 
 ```rust
-extern crate image;
-
 use image::{GenericImage, GenericImageView, ImageBuffer, RgbImage};
 
 // Construct a new RGB ImageBuffer with the specified width and height.
@@ -124,8 +123,6 @@ The coordinates given set the position of the top left corner of the rectangle.
 This is used to perform image processing functions on a subregion of an image.
 
 ```rust
-extern crate image;
-
 use image::{GenericImageView, ImageBuffer, RgbImage, imageops};
 
 let mut img: RgbImage = ImageBuffer::new(512, 512);
@@ -164,8 +161,6 @@ format is determined from the path's file extension. An `io` module provides a
 reader which offer some more control.
 
 ```rust,no_run
-extern crate image;
-
 use image::GenericImageView;
 
 fn main() {
@@ -188,9 +183,6 @@ fn main() {
 
 ```rust,no_run
 //! An example of generating julia fractals.
-extern crate image;
-extern crate num_complex;
-
 fn main() {
     let imgx = 800;
     let imgy = 800;
@@ -242,8 +234,6 @@ Example output:
 If the high level interface is not needed because the image was obtained by other means, `image` provides the function `save_buffer` to save a buffer to a file.
 
 ```rust,no_run
-extern crate image;
-
 fn main() {
 
     let buffer: &[u8] = unimplemented!(); // Generate the image data
@@ -251,5 +241,4 @@ fn main() {
     // Save the buffer as "image.png"
     image::save_buffer("image.png", buffer, 800, 600, image::ColorType::Rgb8).unwrap()
 }
-
 ```

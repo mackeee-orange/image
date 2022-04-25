@@ -7,7 +7,7 @@
 //!
 //! # Examples
 //! ```rust,no_run
-//! use image::gif::{GifDecoder, GifEncoder};
+//! use image::codecs::gif::{GifDecoder, GifEncoder};
 //! use image::{ImageDecoder, AnimationDecoder};
 //! use std::fs::File;
 //! # fn main() -> std::io::Result<()> {
@@ -26,8 +26,8 @@
 //! ```
 #![allow(clippy::while_let_loop)]
 
-use std::convert::TryInto;
 use std::convert::TryFrom;
+use std::convert::TryInto;
 use std::io::{self, Cursor, Read, Write};
 use std::marker::PhantomData;
 use std::mem;
@@ -37,25 +37,42 @@ use gif::{DisposalMethod, Frame};
 use num_rational::Ratio;
 
 use crate::animation;
-use crate::ImageBuffer;
 use crate::color::{ColorType, Rgba};
-use crate::error::{DecodingError, EncodingError, ImageError, ImageResult, ParameterError, ParameterErrorKind, UnsupportedError, UnsupportedErrorKind};
+use crate::error::{
+    DecodingError, EncodingError, ImageError, ImageResult, ParameterError, ParameterErrorKind,
+    UnsupportedError, UnsupportedErrorKind,
+};
 use crate::image::{self, AnimationDecoder, ImageDecoder, ImageFormat};
+use crate::io::Limits;
 use crate::traits::Pixel;
+use crate::ImageBuffer;
 
 /// GIF decoder
 pub struct GifDecoder<R: Read> {
     reader: gif::Decoder<R>,
+    limits: Limits,
 }
 
 impl<R: Read> GifDecoder<R> {
-    /// Creates a new decoder that decodes the input steam ```r```
+    /// Creates a new decoder that decodes the input steam `r`
     pub fn new(r: R) -> ImageResult<GifDecoder<R>> {
         let mut decoder = gif::DecodeOptions::new();
         decoder.set_color_output(ColorOutput::RGBA);
 
         Ok(GifDecoder {
             reader: decoder.read_info(r).map_err(ImageError::from_decoding)?,
+            limits: Limits::default(),
+        })
+    }
+
+    /// Creates a new decoder that decodes the input steam `r`, using limits `limits`
+    pub fn with_limits(r: R, limits: Limits) -> ImageResult<GifDecoder<R>> {
+        let mut decoder = gif::DecodeOptions::new();
+        decoder.set_color_output(ColorOutput::RGBA);
+
+        Ok(GifDecoder {
+            reader: decoder.read_info(r).map_err(ImageError::from_decoding)?,
+            limits,
         })
     }
 }
@@ -80,7 +97,10 @@ impl<'a, R: 'a + Read> ImageDecoder<'a> for GifDecoder<R> {
     type Reader = GifReader<R>;
 
     fn dimensions(&self) -> (u32, u32) {
-        (u32::from(self.reader.width()), u32::from(self.reader.height()))
+        (
+            u32::from(self.reader.width()),
+            u32::from(self.reader.height()),
+        )
     }
 
     fn color_type(&self) -> ColorType {
@@ -88,14 +108,20 @@ impl<'a, R: 'a + Read> ImageDecoder<'a> for GifDecoder<R> {
     }
 
     fn into_reader(self) -> ImageResult<Self::Reader> {
-        Ok(GifReader(Cursor::new(image::decoder_to_vec(self)?), PhantomData))
+        Ok(GifReader(
+            Cursor::new(image::decoder_to_vec(self)?),
+            PhantomData,
+        ))
     }
 
     fn read_image(mut self, buf: &mut [u8]) -> ImageResult<()> {
         assert_eq!(u64::try_from(buf.len()), Ok(self.total_bytes()));
 
-        let frame = match self.reader.next_frame_info()
-            .map_err(ImageError::from_decoding)? {                
+        let frame = match self
+            .reader
+            .next_frame_info()
+            .map_err(ImageError::from_decoding)?
+        {
             Some(frame) => FrameInfo::new_from_frame(frame),
             None => {
                 return Err(ImageError::Parameter(ParameterError::from_kind(
@@ -106,14 +132,53 @@ impl<'a, R: 'a + Read> ImageDecoder<'a> for GifDecoder<R> {
 
         let (width, height) = self.dimensions();
 
-        if (frame.left, frame.top) == (0, 0) && (frame.width, frame.height) != self.dimensions() {
-            // If the frame matches the logical screen, directly read into it
-            self.reader.read_into_buffer(buf).map_err(ImageError::from_decoding)?;
+        if frame.left == 0
+            && frame.width == width
+            && (frame.top as u64 + frame.height as u64 <= height as u64)
+        {
+            // If the frame matches the logical screen, or, as a more general case,
+            // fits into it and touches its left and right borders, then
+            // we can directly write it into the buffer without causing line wraparound.
+            let line_length = usize::try_from(width)
+                .unwrap()
+                .checked_mul(self.color_type().bytes_per_pixel() as usize)
+                .unwrap();
+
+            // isolate the portion of the buffer to read the frame data into.
+            // the chunks above and below it are going to be zeroed.
+            let (blank_top, rest) =
+                buf.split_at_mut(line_length.checked_mul(frame.top as usize).unwrap());
+            let (buf, blank_bottom) =
+                rest.split_at_mut(line_length.checked_mul(frame.height as usize).unwrap());
+
+            debug_assert_eq!(buf.len(), self.reader.buffer_size());
+
+            // this is only necessary in case the buffer is not zeroed
+            for b in blank_top {
+                *b = 0;
+            }
+            // fill the middle section with the frame data
+            self.reader
+                .read_into_buffer(buf)
+                .map_err(ImageError::from_decoding)?;
+            // this is only necessary in case the buffer is not zeroed
+            for b in blank_bottom {
+                *b = 0;
+            }
         } else {
             // If the frame does not match the logical screen, read into an extra buffer
             // and 'insert' the frame from left/top to logical screen width/height.
-            let mut frame_buffer = vec![0; self.reader.buffer_size()];
-            self.reader.read_into_buffer(&mut frame_buffer[..]).map_err(ImageError::from_decoding)?;
+            let buffer_size = self.reader.buffer_size();
+
+            self.limits.reserve_usize(buffer_size)?;
+
+            let mut frame_buffer = vec![0; buffer_size];
+
+            self.limits.free_usize(buffer_size);
+
+            self.reader
+                .read_into_buffer(&mut frame_buffer[..])
+                .map_err(ImageError::from_decoding)?;
 
             let frame_buffer = ImageBuffer::from_raw(frame.width, frame.height, frame_buffer);
             let image_buffer = ImageBuffer::from_raw(width, height, buf);
@@ -228,8 +293,11 @@ impl<R: Read> Iterator for GifFrameIterator<R> {
 
         // blend the current frame with the non-disposed frame, then update
         // the non-disposed frame according to the disposal method.
-        fn blend_and_dispose_pixel(dispose: DisposalMethod,
-                previous: &mut Rgba<u8>, current: &mut Rgba<u8>) {
+        fn blend_and_dispose_pixel(
+            dispose: DisposalMethod,
+            previous: &mut Rgba<u8>,
+            current: &mut Rgba<u8>,
+        ) {
             let pixel_alpha = current.channels()[3];
             if pixel_alpha == 0 {
                 *current = *previous;
@@ -259,7 +327,8 @@ impl<R: Read> Iterator for GifFrameIterator<R> {
         // use it directly, else create a new buffer to hold the composited
         // image.
         let image_buffer = if (frame.left, frame.top) == (0, 0)
-                && (self.width, self.height) == frame_buffer.dimensions() {
+            && (self.width, self.height) == frame_buffer.dimensions()
+        {
             for (x, y, pixel) in frame_buffer.enumerate_pixels_mut() {
                 let previous_pixel = self.non_disposed_frame.get_pixel_mut(x, y);
                 blend_and_dispose_pixel(frame.disposal_method, previous_pixel, pixel);
@@ -283,7 +352,10 @@ impl<R: Read> Iterator for GifFrameIterator<R> {
         };
 
         Some(Ok(animation::Frame::from_parts(
-            image_buffer, 0,0, frame.delay,
+            image_buffer,
+            0,
+            0,
+            frame.delay,
         )))
     }
 }
@@ -343,17 +415,6 @@ pub struct GifEncoder<W: Write> {
     repeat: Option<Repeat>,
 }
 
-/// GIF encoder
-///
-/// An alias of [`GifEncoder`].
-///
-/// TODO: remove
-///
-/// [`GifEncoder`]: struct.GifEncoder.html
-#[allow(dead_code)]
-#[deprecated(note = "Use `GifEncoder` instead")]
-pub type Encoder<W> = GifEncoder<W>;
-
 impl<W: Write> GifEncoder<W> {
     /// Creates a new GIF encoder.
     pub fn new(w: W) -> GifEncoder<W> {
@@ -364,7 +425,10 @@ impl<W: Write> GifEncoder<W> {
     /// [`Frame::from_rgba_speed`](/gif/struct.Frame.html#method.from_rgb_speed)
     /// for more information.
     pub fn new_with_speed(w: W, speed: i32) -> GifEncoder<W> {
-        assert!(speed >= 1 && speed <= 30, "speed needs to be in the range [1, 30]");
+        assert!(
+            speed >= 1 && speed <= 30,
+            "speed needs to be in the range [1, 30]"
+        );
         GifEncoder {
             w: Some(w),
             gif_encoder: None,
@@ -376,7 +440,9 @@ impl<W: Write> GifEncoder<W> {
     /// Set the repeat behaviour of the encoded GIF
     pub fn set_repeat(&mut self, repeat: Repeat) -> ImageResult<()> {
         if let Some(ref mut encoder) = self.gif_encoder {
-            encoder.set_repeat(repeat.to_gif_enum()).map_err(ImageError::from_encoding)?;
+            encoder
+                .set_repeat(repeat.to_gif_enum())
+                .map_err(ImageError::from_encoding)?;
         }
         self.repeat = Some(repeat);
         Ok(())
@@ -395,11 +461,13 @@ impl<W: Write> GifEncoder<W> {
             ColorType::Rgb8 => self.encode_gif(Frame::from_rgb(width, height, data)),
             ColorType::Rgba8 => {
                 self.encode_gif(Frame::from_rgba(width, height, &mut data.to_owned()))
-            },
-            _ => Err(ImageError::Unsupported(UnsupportedError::from_format_and_kind(
-                ImageFormat::Gif.into(),
-                UnsupportedErrorKind::Color(color.into())
-            ))),
+            }
+            _ => Err(ImageError::Unsupported(
+                UnsupportedError::from_format_and_kind(
+                    ImageFormat::Gif.into(),
+                    UnsupportedErrorKind::Color(color.into()),
+                ),
+            )),
         }
     }
 
@@ -413,7 +481,7 @@ impl<W: Write> GifEncoder<W> {
     /// Consider using `try_encode_frames` instead to encode an `animation::Frames` like iterator.
     pub fn encode_frames<F>(&mut self, frames: F) -> ImageResult<()>
     where
-        F: IntoIterator<Item = animation::Frame>
+        F: IntoIterator<Item = animation::Frame>,
     {
         for img_frame in frames {
             self.encode_frame(img_frame)?;
@@ -426,7 +494,7 @@ impl<W: Write> GifEncoder<W> {
     /// Whenever an `Err` item is encountered, that value is returned without further actions.
     pub fn try_encode_frames<F>(&mut self, frames: F) -> ImageResult<()>
     where
-        F: IntoIterator<Item = ImageResult<animation::Frame>>
+        F: IntoIterator<Item = ImageResult<animation::Frame>>,
     {
         for img_frame in frames {
             self.encode_frame(img_frame?)?;
@@ -434,16 +502,15 @@ impl<W: Write> GifEncoder<W> {
         Ok(())
     }
 
-    pub(crate) fn convert_frame(&mut self, img_frame: animation::Frame)
-        -> ImageResult<Frame<'static>>
-    {
+    pub(crate) fn convert_frame(
+        &mut self,
+        img_frame: animation::Frame,
+    ) -> ImageResult<Frame<'static>> {
         // get the delay before converting img_frame
         let frame_delay = img_frame.delay().into_ratio().to_integer();
         // convert img_frame into RgbaImage
         let mut rbga_frame = img_frame.into_buffer();
-        let (width, height) = self.gif_dimensions(
-            rbga_frame.width(),
-            rbga_frame.height())?;
+        let (width, height) = self.gif_dimensions(rbga_frame.width(), rbga_frame.height())?;
 
         // Create the gif::Frame from the animation::Frame
         let mut frame = Frame::from_rgba_speed(width, height, &mut *rbga_frame, self.speed);
@@ -464,12 +531,14 @@ impl<W: Write> GifEncoder<W> {
         }
 
         // TODO: this is not very idiomatic yet. Should return an EncodingError.
-        inner_dimensions(width, height).ok_or_else(|| ImageError::Parameter(ParameterError::from_kind(
-            ParameterErrorKind::DimensionMismatch
-        )))
+        inner_dimensions(width, height).ok_or_else(|| {
+            ImageError::Parameter(ParameterError::from_kind(
+                ParameterErrorKind::DimensionMismatch,
+            ))
+        })
     }
 
-    pub(crate) fn encode_gif(&mut self, frame: Frame) -> ImageResult<()> {
+    pub(crate) fn encode_gif(&mut self, mut frame: Frame) -> ImageResult<()> {
         let gif_encoder;
         if let Some(ref mut encoder) = self.gif_encoder {
             gif_encoder = encoder;
@@ -478,13 +547,19 @@ impl<W: Write> GifEncoder<W> {
             let mut encoder = gif::Encoder::new(writer, frame.width, frame.height, &[])
                 .map_err(ImageError::from_encoding)?;
             if let Some(ref repeat) = self.repeat {
-                encoder.set_repeat(repeat.to_gif_enum()).map_err(ImageError::from_encoding)?;
+                encoder
+                    .set_repeat(repeat.to_gif_enum())
+                    .map_err(ImageError::from_encoding)?;
             }
             self.gif_encoder = Some(encoder);
             gif_encoder = self.gif_encoder.as_mut().unwrap()
         }
 
-        gif_encoder.write_frame(&frame).map_err(ImageError::from_encoding)
+        frame.dispose = gif::DisposalMethod::Background;
+
+        gif_encoder
+            .write_frame(&frame)
+            .map_err(ImageError::from_encoding)
     }
 }
 
@@ -492,7 +567,9 @@ impl ImageError {
     fn from_decoding(err: gif::DecodingError) -> ImageError {
         use gif::DecodingError::*;
         match err {
-            err @ Format(_) => ImageError::Decoding(DecodingError::new(ImageFormat::Gif.into(), err)),
+            err @ Format(_) => {
+                ImageError::Decoding(DecodingError::new(ImageFormat::Gif.into(), err))
+            }
             Io(io_err) => ImageError::IoError(io_err),
         }
     }
@@ -500,7 +577,9 @@ impl ImageError {
     fn from_encoding(err: gif::EncodingError) -> ImageError {
         use gif::EncodingError::*;
         match err {
-            err @ Format(_) => ImageError::Encoding(EncodingError::new(ImageFormat::Gif.into(), err)),
+            err @ Format(_) => {
+                ImageError::Encoding(EncodingError::new(ImageFormat::Gif.into(), err))
+            }
             Io(io_err) => ImageError::IoError(io_err),
         }
     }
