@@ -101,8 +101,6 @@ extern crate test;
 #[macro_use]
 extern crate quickcheck;
 
-pub use crate::color::{ColorType, ExtendedColorType};
-
 pub use crate::color::{ColorType, ExtendedColorType, FromColor};
 
 pub use crate::color::{Luma, LumaA, Rgb, Rgba};
