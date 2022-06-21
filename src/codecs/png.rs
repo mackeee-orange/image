@@ -32,7 +32,7 @@ pub(crate) const PNG_SIGNATURE: [u8; 8] = [137, 80, 78, 71, 13, 10, 26, 10];
 /// however for interlaced png files this is not possible and
 /// these are therefore read at once.
 pub struct PngReader<R: Read> {
-    reader: png::Reader<R>,
+    pub reader: png::Reader<R>,
     buffer: Vec<u8>,
     index: usize,
 }
