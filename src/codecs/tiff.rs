@@ -12,13 +12,15 @@ use std::convert::TryFrom;
 use std::io::{self, Cursor, Read, Seek, Write};
 use std::marker::PhantomData;
 use std::mem;
+use tiff::decoder::ifd::Value;
+use tiff::tags::{ResolutionUnit, Tag};
 
 use crate::color::{ColorType, ExtendedColorType};
 use crate::error::{
     DecodingError, EncodingError, ImageError, ImageResult, LimitError, LimitErrorKind,
     ParameterError, ParameterErrorKind, UnsupportedError, UnsupportedErrorKind,
 };
-use crate::image::{ImageDecoder, ImageEncoder, ImageFormat};
+use crate::image::{DEFAULT_DPI, ImageDecoder, ImageEncoder, ImageFormat};
 use crate::utils;
 
 /// Decoder for TIFF images.
@@ -171,6 +173,24 @@ impl<'a, R: 'a + Read + Seek> ImageDecoder<'a> for TiffDecoder<R> {
 
     fn color_type(&self) -> ColorType {
         self.color_type
+    }
+
+    fn dpi(&mut self) -> u32 {
+        if let (Ok(resolution), Ok(unit)) = (self.inner.get_tag(Tag::XResolution), self.inner.get_tag(Tag::ResolutionUnit)) {
+            match (resolution, ResolutionUnit::from_u16(unit.into_u16().expect("ERROR: dpi"))) {
+                (Value::Rational(n, d), Some(ResolutionUnit::Inch)) => {
+                    println!("n{n} d{d}");
+                    n
+                }
+                (Value::Rational(n, d), Some(ResolutionUnit::Centimeter)) => {
+                    println!("n{n} d{d}");
+                    n
+                }
+                _ => DEFAULT_DPI
+            }
+        } else {
+            DEFAULT_DPI
+        }
     }
 
     fn into_reader(mut self) -> ImageResult<Self::Reader> {

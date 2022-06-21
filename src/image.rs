@@ -621,6 +621,9 @@ impl Progress {
     }
 }
 
+pub(crate) static DEFAULT_DPI: u32 = 72;
+pub(crate) static ONE_INCH_IN_MM: f32 = 25.4;
+
 /// The trait that all decoders implement
 pub trait ImageDecoder<'a>: Sized {
     /// The type of reader produced by `into_reader`.
@@ -631,6 +634,11 @@ pub trait ImageDecoder<'a>: Sized {
 
     /// Returns the color type of the image data produced by this decoder
     fn color_type(&self) -> ColorType;
+
+    /// Resolution
+    fn dpi(&mut self) -> u32 {
+        DEFAULT_DPI
+    }
 
     /// Retuns the color type of the image file before decoding
     fn original_color_type(&self) -> ExtendedColorType {

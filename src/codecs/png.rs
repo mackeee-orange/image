@@ -19,7 +19,7 @@ use crate::error::{
     DecodingError, EncodingError, ImageError, ImageResult, LimitError, LimitErrorKind,
     ParameterError, ParameterErrorKind, UnsupportedError, UnsupportedErrorKind,
 };
-use crate::image::{AnimationDecoder, ImageDecoder, ImageEncoder, ImageFormat};
+use crate::image::{AnimationDecoder, DEFAULT_DPI, ImageDecoder, ImageEncoder, ImageFormat, ONE_INCH_IN_MM};
 use crate::{DynamicImage, GenericImage, ImageBuffer, Luma, LumaA, Rgb, Rgba, RgbaImage};
 
 // http://www.w3.org/TR/PNG-Structure.html
@@ -256,6 +256,14 @@ impl<'a, R: 'a + Read> ImageDecoder<'a> for PngDecoder<R> {
     fn scanline_bytes(&self) -> u64 {
         let width = self.reader.info().width;
         self.reader.output_line_size(width) as u64
+    }
+
+    fn dpi(&mut self) -> u32 {
+        if let Some(pd) = self.reader.info().pixel_dims {
+            (pd.xppu as f32 / 1000.0 * ONE_INCH_IN_MM).round() as u32
+        } else {
+            DEFAULT_DPI
+        }
     }
 }
 
