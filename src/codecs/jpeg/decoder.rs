@@ -2,7 +2,7 @@ use std::convert::TryFrom;
 use std::io::{self, Cursor, Read};
 use std::marker::PhantomData;
 use std::mem;
-use jpeg_decoder::DensityUnits;
+use jpeg::DensityUnits;
 
 use crate::color::ColorType;
 use crate::error::{
@@ -14,14 +14,14 @@ use crate::io::Limits;
 
 /// JPEG decoder
 pub struct JpegDecoder<R> {
-    decoder: jpeg_decoder::Decoder<R>,
-    metadata: jpeg_decoder::ImageInfo,
+    decoder: jpeg::Decoder<R>,
+    metadata: jpeg::ImageInfo,
 }
 
 impl<R: Read> JpegDecoder<R> {
     /// Create a new decoder that decodes from the stream ```r```
     pub fn new(r: R) -> ImageResult<JpegDecoder<R>> {
-        let mut decoder = jpeg_decoder::Decoder::new(r);
+        let mut decoder = jpeg::Decoder::new(r);
 
         decoder.read_info().map_err(ImageError::from_jpeg)?;
         let mut metadata = decoder.info().ok_or_else(|| {
@@ -29,8 +29,8 @@ impl<R: Read> JpegDecoder<R> {
         })?;
 
         // We convert CMYK data to RGB before returning it to the user.
-        if metadata.pixel_format == jpeg_decoder::PixelFormat::CMYK32 {
-            metadata.pixel_format = jpeg_decoder::PixelFormat::RGB24;
+        if metadata.pixel_format == jpeg::PixelFormat::CMYK32 {
+            metadata.pixel_format = jpeg::PixelFormat::RGB24;
         }
 
         Ok(JpegDecoder { decoder, metadata })
@@ -99,7 +99,7 @@ impl<'a, R: 'a + Read> ImageDecoder<'a> for JpegDecoder<R> {
     fn into_reader(mut self) -> ImageResult<Self::Reader> {
         let mut data = self.decoder.decode().map_err(ImageError::from_jpeg)?;
         data = match self.decoder.info().unwrap().pixel_format {
-            jpeg_decoder::PixelFormat::CMYK32 => cmyk_to_rgb(&data),
+            jpeg::PixelFormat::CMYK32 => cmyk_to_rgb(&data),
             _ => data,
         };
 
@@ -111,7 +111,7 @@ impl<'a, R: 'a + Read> ImageDecoder<'a> for JpegDecoder<R> {
 
         let mut data = self.decoder.decode().map_err(ImageError::from_jpeg)?;
         data = match self.decoder.info().unwrap().pixel_format {
-            jpeg_decoder::PixelFormat::CMYK32 => cmyk_to_rgb(&data),
+            jpeg::PixelFormat::CMYK32 => cmyk_to_rgb(&data),
             _ => data,
         };
 
@@ -122,8 +122,8 @@ impl<'a, R: 'a + Read> ImageDecoder<'a> for JpegDecoder<R> {
     fn dpi(&mut self) -> u32 {
         if let Some(density) = self.decoder.info().unwrap().density {
             return match density.units {
-                DensityUnits::DotsPerInch => density.x,
-                DensityUnits::DotsPerCm => density.x * 2.54,
+                DensityUnits::DotsPerInch => density.x as u32,
+                DensityUnits::DotsPerCm => (density.x as f32 * 2.54) as u32,
                 _ => DEFAULT_DPI
             }
         }
@@ -157,8 +157,8 @@ fn cmyk_to_rgb(input: &[u8]) -> Vec<u8> {
 }
 
 impl ColorType {
-    fn from_jpeg(pixel_format: jpeg_decoder::PixelFormat) -> ColorType {
-        use jpeg_decoder::PixelFormat::*;
+    fn from_jpeg(pixel_format: jpeg::PixelFormat) -> ColorType {
+        use jpeg::PixelFormat::*;
         match pixel_format {
             L8 => ColorType::L8,
             L16 => ColorType::L16,
@@ -169,8 +169,8 @@ impl ColorType {
 }
 
 impl ImageError {
-    fn from_jpeg(err: jpeg_decoder::Error) -> ImageError {
-        use jpeg_decoder::Error::*;
+    fn from_jpeg(err: jpeg::Error) -> ImageError {
+        use jpeg::Error::*;
         match err {
             err @ Format(_) => {
                 ImageError::Decoding(DecodingError::new(ImageFormat::Jpeg.into(), err))

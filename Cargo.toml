@@ -34,7 +34,7 @@ num-iter = "0.1.32"
 num-rational = { version = "0.4", default-features = false }
 num-traits = "0.2.0"
 gif = { version = "0.11.1", optional = true }
-jpeg-decoder = { git="https://github.com/mackeee-orange/jpeg-decoder", version = "0.3.0", default-features = false, optional = true }
+jpeg = { git="https://github.com/mackeee-orange/jpeg-decoder", package="jpeg-decoder", version = "0.3.0", default-features = false, optional = true }
 png = { git="https://github.com/mackeee-orange/image-png", version = "0.17.7", optional = true }
 scoped_threadpool = { version = "0.1", optional = true }
 tiff = { version = "0.7.1", optional = true }
@@ -54,11 +54,11 @@ quickcheck = "1"
 criterion = "0.3"
 # Keep this in sync with the jpeg dependency above. This is used to enable the platform_independent
 # feature when testing, so `cargo test` works correctly.
-jpeg-decoder = { git="https://github.com/mackeee-orange/jpeg-decoder", version = "0.3.0", default-features = false, features = ["platform_independent"] }
+jpeg = { git="https://github.com/mackeee-orange/jpeg-decoder", package="jpeg-decoder", version = "0.3.0", default-features = false, features = ["platform_independent"] }
 
 [features]
 # TODO: Add "avif" to this list while preparing for 0.24.0
-default = ["gif", "jpeg-decoder", "ico", "png", "pnm", "tga", "tiff", "webp", "bmp", "hdr", "dxt", "dds", "farbfeld", "jpeg_rayon", "openexr"]
+default = ["gif", "jpeg", "ico", "png", "pnm", "tga", "tiff", "webp", "bmp", "hdr", "dxt", "dds", "farbfeld", "jpeg_rayon", "openexr"]
 
 ico = ["bmp", "png"]
 pnm = []
@@ -73,7 +73,7 @@ openexr = ["exr"]
 
 # Enables multi-threading.
 # Requires latest stable Rust.
-jpeg_rayon = ["jpeg-decoder/rayon"]
+jpeg_rayon = ["jpeg/rayon"]
 # Non-default, enables avif support.
 # Requires latest stable Rust.
 avif = ["avif-encoder"]
