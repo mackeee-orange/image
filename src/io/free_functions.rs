@@ -57,7 +57,7 @@ pub(crate) fn load_decoder<R: BufRead + Seek, V: DecoderVisitor>(
         #[cfg(feature = "gif")]
         image::ImageFormat::Gif => visitor.visit_decoder(gif::GifDecoder::new(r)?),
         #[cfg(feature = "jpeg")]
-        image::ImageFormat::Jpeg => visitor.visit_decoder(jpeg::JpegDecoder::new(r)?),
+        image::ImageFormat::Jpeg => visitor.visit_decoder(jpeg_decoder::JpegDecoder::new(r)?),
         #[cfg(feature = "webp")]
         image::ImageFormat::WebP => visitor.visit_decoder(webp::WebPDecoder::new(r)?),
         #[cfg(feature = "tiff")]
@@ -203,7 +203,7 @@ pub(crate) fn write_buffer_impl<W: std::io::Write + Seek>(
         }
         #[cfg(feature = "jpeg")]
         ImageOutputFormat::Jpeg(quality) => {
-            jpeg::JpegEncoder::new_with_quality(buffered_write, quality)
+            jpeg_decoder::JpegEncoder::new_with_quality(buffered_write, quality)
                 .write_image(buf, width, height, color)
         }
         #[cfg(feature = "pnm")]

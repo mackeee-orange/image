@@ -303,7 +303,7 @@ pub enum PixelDensityUnit {
 /// For example, a 300 DPI image is represented by:
 ///
 /// ```rust
-/// use image::codecs::jpeg::*;
+/// use image::codecs::jpeg_decoder::*;
 /// let hdpi = PixelDensity::dpi(300);
 /// assert_eq!(hdpi, PixelDensity {density: (300,300), unit: PixelDensityUnit::Inches})
 /// ```
